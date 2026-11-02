@@ -1,0 +1,48 @@
+name: Deploy SQL Server DB
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  deploy-db:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run SQL Server Container
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        run: |
+          docker run -d \
+            --name mssql-server \
+            -e "ACCEPT_EULA=${ACCEPT_EULA}" \
+            -e "MSSQL_PID=${MSSQL_PID}" \
+            -e "SA_PASSWORD=${SA_PASSWORD}" \
+            -p 1433:1433 \
+            microsoft/mssql-server:latest
+
+      - name: Wait for SQL Server to start
+        run: |
+          echo "Esperando a que SQL Server esté disponible..."
+          for i in {1..30}; do
+            if docker exec mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -Q "SELECT 1" &>/dev/null; then
+              echo "¡SQL Server está listo!"
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1
+
+      - name: Run SQL Scripts
+        run: |
+          docker cp sql/. mssql-server:/tmp/sql/
+          docker exec -i mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -i /tmp/sql/create_database.sql
+          docker exec -i mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -i /tmp/sql/create_tables.sql
+          docker exec -i mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -i /tmp/sql/create_procedure.sql
+          docker exec -i mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -i /tmp/sql/create_trigger.sql
+          docker exec -i mssql-server /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P "${{ secrets.MSSQL_SA_PASSWORD }}" -i /tmp/sql/test_data.sql

@@ -1,0 +1,25 @@
+name: Generar Reporte CSV Programado
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  generar-reporte:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generar archivo CSV
+        run: |
+          echo "VentaID,Producto,Cantidad,Fecha" > reporte_ventas.csv
+          echo "1,Laptop,3,2026-11-02 10:00:00" >> reporte_ventas.csv
+          echo "2,Monitor,5,2026-11-02 10:05:00" >> reporte_ventas.csv
+
+      - name: Subir Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-ventas-csv
+          path: reporte_ventas.csv

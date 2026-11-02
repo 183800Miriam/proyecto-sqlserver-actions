@@ -1,0 +1,4 @@
+CREATE DATABASE EmpresaDB;
+GO
+USE EmpresaDB;
+GO
