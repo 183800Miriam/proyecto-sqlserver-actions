@@ -1,9 +1,9 @@
 name: Generar Reporte CSV Programado
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Se ejecuta diariamente a medianoche
 
 jobs:
   generar-reporte:
@@ -12,14 +12,43 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Generar archivo CSV
+      - name: Run SQL Server Container
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_PID: Developer
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
         run: |
-          echo "VentaID,Producto,Cantidad,Fecha" > reporte_ventas.csv
-          echo "1,Laptop,3,2026-11-02 10:00:00" >> reporte_ventas.csv
-          echo "2,Monitor,5,2026-11-02 10:05:00" >> reporte_ventas.csv
+          docker run -d \
+            --name mssql-server \
+            -e "ACCEPT_EULA=${ACCEPT_EULA}" \
+            -e "MSSQL_PID=${MSSQL_PID}" \
+            -e "MSSQL_SA_PASSWORD=${SA_PASSWORD}" \
+            -p 1433:1433 \
+            mcr.microsoft.com/mssql/server:2022-latest
 
-      - name: Subir Artifact
+      - name: Wait for SQL Server and Populate DB
+        env:
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        run: |
+          echo "Esperando 20 segundos a que inicie SQL Server..."
+          sleep 20
+          
+          docker cp sql/. mssql-server:/tmp/sql/
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -i /tmp/sql/create_database.sql
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -i /tmp/sql/create_tables.sql
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -i /tmp/sql/create_procedure.sql
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -i /tmp/sql/create_trigger.sql
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -i /tmp/sql/test_data.sql
+
+      - name: Export Report to CSV
+        env:
+          SA_PASSWORD: ${{ secrets.MSSQL_SA_PASSWORD }}
+        run: |
+          mkdir -p reportes
+          docker exec -i mssql-server /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$SA_PASSWORD" -C -d EmpresaDB -Q "SET NOCOUNT ON; SELECT VentaID, Producto, Cantidad, Fecha FROM Ventas;" -s "," -W > reportes/reporte_ventas.csv
+
+      - name: Upload CSV Artifact
         uses: actions/upload-artifact@v4
         with:
           name: reporte-ventas-csv
-          path: reporte_ventas.csv
+          path: reportes/reporte_ventas.csv
